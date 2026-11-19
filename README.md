@@ -64,6 +64,22 @@ When the key expires, make a new one the same way and sign in again from the gea
 - Changes show up straight away for you. The public copy of the site takes about a minute to catch up
   while GitHub republishes it.
 
+## Picrew button (Firefox or any desktop browser)
+
+1. Sign in on the gallery, open **Settings** (gear icon) and find **Picrew button**.
+2. Drag **Send to Character Gallery** onto your bookmarks toolbar. (No toolbar in Firefox? Press
+   Ctrl+Shift+B, or ⌘⇧B on a Mac.)
+3. Make a picture in a Picrew and finish it. On the page that shows your finished picture
+   (its address ends in `/complete?cd=…`), click the bookmark.
+4. A small gallery window opens with the picture, the Picrew's name and its link filled in. If you've
+   used that Picrew before, it reuses the name you gave it. Add characters and tags, then
+   **Add to gallery**. The window closes itself when it's saved.
+
+If Picrew ever refuses to hand the picture over directly, the window says so and shows a faded copy.
+Right-click the picture on the Picrew tab, choose **Copy Image**, come back and press Ctrl+V (⌘V).
+
+If your browser blocks the window, allow pop-ups for picrew.me.
+
 ## How it works (if you're curious)
 
 Each upload, edit, feature or delete is a single commit to the repo made through the GitHub API, so the

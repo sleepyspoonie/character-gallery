@@ -43,6 +43,8 @@
     query: '',
     open: new Set(),          // picture ids whose details are expanded
     localImages: {},          // id -> object URL for pictures uploaded this session
+    pendingAdd: null,         // picture sent over by the Picrew button, waiting for the upload form
+    quickAdd: false,          // this window was opened by the Picrew button
     busy: false
   };
 
@@ -374,13 +376,16 @@
 
   function parseRoute() {
     const h = location.hash.replace(/^#\/?/, '');
-    const parts = h.split('/').filter(Boolean);
+    const qAt = h.indexOf('?');
+    const parts = (qAt === -1 ? h : h.slice(0, qAt)).split('/').filter(Boolean);
+    if (parts[0] === 'add') return { view: 'add', params: new URLSearchParams(qAt === -1 ? '' : h.slice(qAt + 1)) };
     if (parts[0] === 'c' && parts[1]) return { view: 'character', slug: decodeURIComponent(parts[1]) };
     return { view: 'gallery' };
   }
 
   function render(opts) {
     opts = opts || {};
+    captureQuickAdd();
     renderTopbar();
     if (!state.loaded) {
       app.innerHTML = state.loadError
@@ -392,6 +397,74 @@
     if (route.view === 'character') renderCharacter(route.slug);
     else renderGallery();
     if (opts.focus) app.focus({ preventScroll: true });
+    openPendingAdd();
+  }
+
+  /* ------------------------------------------------- Picrew button hand-off */
+
+  // The Picrew button opens this site at #/add?img=…&title=…&url=…  — remember it, tidy the address bar.
+  function captureQuickAdd() {
+    const route = parseRoute();
+    if (route.view !== 'add') return;
+    const p = route.params;
+    const img = p.get('img') || '';
+    const url = p.get('url') || '';
+    state.pendingAdd = {
+      img: /^https:\/\//.test(img) ? img : '',
+      url: isHttpUrl(url) ? url : '',
+      title: (p.get('title') || '').slice(0, 120),
+      askedSignIn: false
+    };
+    state.quickAdd = !!window.opener;
+    history.replaceState(null, '', location.pathname + location.search + '#/');
+  }
+
+  function openPendingAdd() {
+    const pa = state.pendingAdd;
+    if (!pa || !state.loaded || document.querySelector('.overlay')) return;
+    if (!signedIn()) {
+      if (pa.askedSignIn) return;
+      pa.askedSignIn = true;
+      toast('Sign in first — the Picrew picture will be waiting for you.');
+      openSettings();
+      return;
+    }
+    state.pendingAdd = null;
+    openPictureForm({
+      mode: 'upload',
+      prefill: { sourceLabel: picrewLabel(pa.url, pa.title), sourceUrl: pa.url, remoteImage: pa.img }
+    });
+  }
+
+  // Reuse the label you've already given this Picrew, if any; otherwise "Picrew - <its title>".
+  // Older labels written as "Picrew · …" come back with the dash too.
+  function picrewLabel(url, title) {
+    const id = (url.match(/image_maker\/(\d+)/) || [])[1];
+    if (id) {
+      const re = new RegExp('image_maker/' + id + '(?!\\d)');
+      const hit = state.data.pictures.slice().sort(newestFirst).find((p) => p.source.label && re.test(p.source.url));
+      if (hit) return hit.source.label.replace(/^Picrew\s*·\s*/, 'Picrew - ');
+    }
+    return title ? 'Picrew - ' + title : 'Picrew';
+  }
+
+  function bookmarkletCode() {
+    const gallery = location.origin + location.pathname;
+    const code = "(function(){var G=" + JSON.stringify(gallery) + ";" +
+      "if(!/(^|\\.)picrew\\.me$/i.test(location.hostname)){alert('Use this on a Picrew page, the one that shows your finished picture.');return;}" +
+      "var all=Array.prototype.slice.call(document.images);" +
+      "var img=all.filter(function(i){return /\\/shareImg\\//.test(i.src);})[0];" +
+      "if(!img){img=all.filter(function(i){return /^https:\\/\\/cdn\\.picrew\\.me\\//.test(i.src)&&i.naturalWidth>=300;})" +
+        ".sort(function(a,b){return b.naturalWidth*b.naturalHeight-a.naturalWidth*a.naturalHeight;})[0];}" +
+      "if(!img){alert('No finished picture found. Finish your picture in the Picrew first, then click this on the page that shows it.');return;}" +
+      "var m=location.pathname.match(/image_maker\\/(\\d+)/);" +
+      "var og=document.querySelector('meta[property=\"og:title\"]');" +
+      "var t=((og&&og.content)||document.title||'').replace(/\\s*[|\uff5c]\\s*Picrew.*$/i,'').trim();" +
+      "var q='img='+encodeURIComponent(img.src)+'&title='+encodeURIComponent(t)+'&url='+encodeURIComponent(m?'https://picrew.me/en/image_maker/'+m[1]:location.href.split('?')[0]);" +
+      "var w=window.open(G+'#/add?'+q,'characterGalleryAdd','popup,width=780,height=920');" +
+      "if(!w){alert('Your browser blocked the popup. Allow popups for picrew.me, then click this again.');}" +
+      "})();";
+    return 'javascript:' + encodeURIComponent(code);
   }
 
   window.addEventListener('hashchange', () => {
@@ -749,6 +822,14 @@
           '<button type="button" class="icon-btn" aria-label="Close" data-close>' + ICON.close + '</button></div>' +
         '<form class="dialog-body single" id="settings-form" novalidate>' +
           sortSection +
+          (wasSignedIn
+            ? '<fieldset class="settings-group divided">' +
+                '<legend class="settings-legend">Picrew button</legend>' +
+                '<p class="hint" style="margin:0">Drag this button onto your bookmarks toolbar. On a Picrew page that shows your finished picture, click it to open this gallery’s upload form with the picture, the Picrew’s name and its link already filled in.</p>' +
+                '<p style="margin:0"><a class="btn bookmarklet" id="s-bookmarklet" href="' + esc(bookmarkletCode()) + '">' + ICON.plus + 'Send to Character Gallery</a></p>' +
+                '<p class="hint" style="margin:0">Can’t see a bookmarks toolbar in Firefox? Press Ctrl+Shift+B (⌘⇧B on a Mac).</p>' +
+              '</fieldset>'
+            : '') +
           '<fieldset class="settings-group">' +
           (wasSignedIn ? '<legend class="settings-legend">GitHub connection</legend>' : '') +
           '<p class="hint" style="margin:0">Paste a GitHub key that can write to this site’s repository. It’s saved only in this browser, on this device.</p>' +
@@ -773,6 +854,9 @@
     const err = d.querySelector('#s-error');
     const firstFocus = d.querySelector('input[name="s-sort"]:checked') || d.querySelector(s.token ? '#s-owner' : '#s-token');
     firstFocus.focus();
+
+    const bm = d.querySelector('#s-bookmarklet');
+    if (bm) bm.addEventListener('click', (e) => { e.preventDefault(); toast('Drag this button onto your bookmarks toolbar instead of clicking it.'); });
 
     const signout = d.querySelector('#s-signout');
     if (signout) signout.addEventListener('click', () => {
@@ -889,6 +973,8 @@
       tags: editing ? pic.tags.slice() : []
     };
     const sources = knownSources();
+    const pre = opts.prefill || {};
+    let onPaste = null;
 
     const m = openModal(
       '<div class="dialog" role="dialog" aria-modal="true" aria-labelledby="pf-title">' +
@@ -901,7 +987,7 @@
               ? '<div class="dropzone" style="cursor:default; border-style:solid">' + imgTag(pic, 'The picture being edited') + '</div>'
               : '<label class="dropzone" id="pf-drop"><input type="file" id="pf-file" accept="image/png,image/jpeg,image/gif,image/webp">' +
                   '<span id="pf-drop-empty" style="display:flex;flex-direction:column;align-items:center;gap:8px;color:var(--muted)">' + ICON.image +
-                  '<span style="font-weight:600;color:var(--text)">Choose an image</span><span style="font-size:13px">or drop or paste it here</span></span>' +
+                  '<span id="pf-drop-title" style="font-weight:600;color:var(--text)">Choose an image</span><span id="pf-drop-sub" style="font-size:13px">or drop or paste it here</span></span>' +
                 '</label>' +
                 '<span class="dropzone-hint" id="pf-drop-hint">PNG, JPG, GIF or WebP. It’s renamed automatically.</span>') +
           '</div>' +
@@ -918,10 +1004,10 @@
             '</div>' +
             '<div class="field-row">' +
               '<div class="field"><label for="pf-src">Where it’s from</label>' +
-                '<input class="input" id="pf-src" list="pf-src-list" autocomplete="off" placeholder="e.g. Picrew · ummmmmandy" value="' + esc(editing ? pic.source.label : '') + '">' +
+                '<input class="input" id="pf-src" list="pf-src-list" autocomplete="off" placeholder="e.g. Picrew - ummmmmandy" value="' + esc(editing ? pic.source.label : (pre.sourceLabel || '')) + '">' +
                 '<datalist id="pf-src-list">' + sources.map((s) => '<option value="' + esc(s.label) + '">').join('') + '</datalist></div>' +
               '<div class="field"><label for="pf-url">Link</label>' +
-                '<input class="input" id="pf-url" type="url" autocomplete="off" placeholder="https://picrew.me/…" value="' + esc(editing ? pic.source.url : '') + '"></div>' +
+                '<input class="input" id="pf-url" type="url" autocomplete="off" placeholder="https://picrew.me/…" value="' + esc(editing ? pic.source.url : (pre.sourceUrl || '')) + '"></div>' +
             '</div>' +
             '<div class="field"><label for="pf-made">Made by</label>' +
               '<input class="input" id="pf-made" autocomplete="off" placeholder="Who put it together" value="' + esc(editing ? pic.madeBy : lastMaker()) + '"></div>' +
@@ -936,7 +1022,10 @@
           '<button type="submit" form="pf" class="btn btn-primary" id="pf-save">' + (editing ? 'Save changes' : 'Add to gallery') + '</button>' +
         '</div>' +
       '</div>',
-      () => { if (form.preview && form.file) URL.revokeObjectURL(form.preview); });
+      () => {
+        if (form.preview && form.file) URL.revokeObjectURL(form.preview);
+        if (onPaste) document.removeEventListener('paste', onPaste);
+      });
     const d = m.dialog;
 
     const charBox = d.querySelector('#pf-chars');
@@ -1036,6 +1125,7 @@
       if (!img) { img = document.createElement('img'); drop.appendChild(img); }
       img.src = form.preview;
       img.alt = 'Preview of the picture to upload';
+      img.classList.remove('ref');
       d.querySelector('#pf-drop-empty').style.visibility = 'hidden';
       d.querySelector('#pf-drop-hint').textContent = 'Click the image to choose a different one.';
     }
@@ -1045,16 +1135,52 @@
       ['dragenter', 'dragover'].forEach((t) => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.add('is-over'); }));
       ['dragleave', 'drop'].forEach((t) => drop.addEventListener(t, () => drop.classList.remove('is-over')));
       drop.addEventListener('drop', (e) => { e.preventDefault(); setFile(e.dataTransfer.files && e.dataTransfer.files[0]); });
-      d.addEventListener('paste', (e) => {
+      onPaste = (e) => {
         const item = Array.from((e.clipboardData && e.clipboardData.items) || []).find((i) => i.kind === 'file' && IMAGE_TYPES[i.type]);
         if (item) { e.preventDefault(); setFile(item.getAsFile()); }
-      });
+      };
+      document.addEventListener('paste', onPaste);
+      if (pre.remoteImage) fetchRemote(pre.remoteImage);
+    }
+
+    // Picrew button: try to download the finished picture straight from Picrew's server.
+    async function fetchRemote(url) {
+      const drop = d.querySelector('#pf-drop');
+      const title = d.querySelector('#pf-drop-title');
+      const sub = d.querySelector('#pf-drop-sub');
+      const hint = d.querySelector('#pf-drop-hint');
+      title.textContent = 'Getting the picture…';
+      sub.textContent = 'from Picrew';
+      const name = decodeURIComponent((url.split('?')[0].split('/').pop() || 'picrew.png'));
+      try {
+        const res = await fetch(url, { mode: 'cors', credentials: 'omit' });
+        if (!res.ok) throw new Error('status ' + res.status);
+        const blob = await res.blob();
+        const ext = (name.match(/\.(png|jpe?g|gif|webp)$/i) || [])[1];
+        const type = IMAGE_TYPES[blob.type] ? blob.type
+          : ext ? Object.keys(IMAGE_TYPES).find((k) => IMAGE_TYPES[k] === ext.toLowerCase().replace('jpeg', 'jpg')) : '';
+        if (!type) throw new Error('not an image');
+        if (form.file) return;   // already pasted something meanwhile
+        setFile(new File([blob], name, { type: type }));
+        hint.textContent = 'Picture fetched from Picrew. Click it to choose a different one.';
+      } catch (err) {
+        if (form.file) return;
+        // Show it as a faded reference so it's clear which picture to copy.
+        const ref = document.createElement('img');
+        ref.className = 'ref';
+        ref.alt = '';
+        ref.src = url;
+        drop.appendChild(ref);
+        title.textContent = 'Paste the picture here';
+        sub.textContent = 'Ctrl+V (⌘V on a Mac)';
+        hint.textContent = 'Picrew wouldn’t hand the picture over directly. On the Picrew tab, right-click the picture and choose Copy Image, then come back and paste.';
+      }
     }
 
     function showError(msg) { errEl.textContent = msg; errEl.hidden = false; }
 
     renderChips();
-    (editing ? charInput : d.querySelector('#pf-file')).focus();
+    (editing || pre.remoteImage ? charInput : d.querySelector('#pf-file')).focus();
 
     d.querySelector('#pf').addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -1103,11 +1229,12 @@
           }, { add: [{ path: path, base64: base64 }] });
           state.localImages[id] = form.preview;
           form.file = null;   // keep the object URL alive for display
-          toast('Added. The public site will show it in about a minute.');
+          toast(state.quickAdd ? 'Added to the gallery. Closing this window…' : 'Added. The public site will show it in about a minute.');
         }
         state.busy = false;
         m.close();
         render();
+        if (!editing && state.quickAdd) setTimeout(() => window.close(), 1600);
       } catch (ex) {
         state.busy = false;
         save.disabled = false;

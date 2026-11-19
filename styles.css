@@ -261,6 +261,10 @@ button { cursor: pointer; }
 .dropzone:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
 .dropzone input { position: absolute; width: 1px; height: 1px; opacity: 0; }
 .dropzone img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.dropzone img.ref { opacity: 0.22; }
+#pf-drop-empty { position: relative; z-index: 1; }
+.bookmarklet { cursor: grab; border-style: dashed; border-color: var(--accent); color: var(--accent); }
+.bookmarklet:hover { color: var(--accent); }
 .dropzone-hint { font-size: 13px; color: var(--muted); text-align: center; }
 
 .fields { flex: 999 1 300px; min-width: 0; display: flex; flex-direction: column; gap: 18px; }
