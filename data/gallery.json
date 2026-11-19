@@ -855,6 +855,6 @@
   },
   "settings": {
     "defaultSort": "tier",
-    "hideBackground": false
+    "hideBackground": true
   }
 }
