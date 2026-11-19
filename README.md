@@ -64,6 +64,16 @@ When the key expires, make a new one the same way and sign in again from the gea
 - Changes show up straight away for you. The public copy of the site takes about a minute to catch up
   while GitHub republishes it.
 
+## Picrews tab
+
+The **Picrews** tab in the header lists every Picrew you've used, with how many pictures came from
+each, which characters, and when it was last used. Pictures are grouped by the Picrew's own number in
+its link, so the same Picrew counts once even if pictures were labelled differently.
+
+- Click a Picrew's name to see every picture made with it.
+- **Open Picrew** goes to the Picrew itself.
+- **Rename** (when signed in) changes its name on every picture made with it, all in one go.
+
 ## Picrew button (Firefox or any desktop browser)
 
 1. Sign in on the gallery, open **Settings** (gear icon) and find **Picrew button**.

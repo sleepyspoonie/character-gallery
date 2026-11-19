@@ -353,6 +353,177 @@
     return '<img src="' + esc(imageUrl(p)) + '" data-file="' + esc(p.file) + '" alt="' + esc(alt || '') + '" loading="lazy"' + (extraAttrs || '') + '>';
   }
 
+  /* ------------------------------------------------------------------ tabs */
+
+  function renderTabs(view) {
+    const nav = document.getElementById('tabs');
+    if (!nav) return;
+    const onPicrews = view === 'picrews' || view === 'picrew';
+    nav.innerHTML =
+      '<a class="tab" href="#/"' + (onPicrews ? '' : ' aria-current="page"') + '>Characters</a>' +
+      '<a class="tab" href="#/picrews"' + (onPicrews ? ' aria-current="page"' : '') + '>Picrews</a>';
+  }
+
+  /* --------------------------------------------------------------- picrews */
+
+  // Pictures are grouped by the Picrew's own number (picrew.me/…/image_maker/<number>), so a Picrew
+  // still counts as one even if its pictures were labelled differently.
+  function picrewId(url) {
+    const m = String(url || '').match(/^https?:\/\/(?:www\.)?picrew\.me\/(?:[a-z-]+\/)?image_maker\/(\d+)/i);
+    return m ? m[1] : null;
+  }
+  function picrews() {
+    const map = new Map();
+    for (const p of state.data.pictures) {
+      const id = picrewId(p.source.url);
+      if (!id) continue;
+      if (!map.has(id)) map.set(id, { id: id, pictures: [] });
+      map.get(id).pictures.push(p);
+    }
+    return Array.from(map.values()).map((g) => {
+      g.pictures.sort(newestFirst);
+      const labelled = g.pictures.find((p) => p.source.label);
+      g.name = labelled ? labelled.source.label : 'Picrew ' + g.id;
+      g.url = 'https://picrew.me/en/image_maker/' + g.id;
+      g.lastUsed = g.pictures[0].added;
+      const seen = [];
+      g.pictures.forEach((p) => p.characters.forEach((n) => { if (!seen.some((x) => sameName(x, n))) seen.push(n); }));
+      g.characters = seen;
+      const labels = new Set(g.pictures.map((p) => p.source.label).filter(Boolean));
+      g.mixedNames = labels.size > 1;
+      return g;
+    });
+  }
+
+  function renderPicrews() {
+    document.title = 'Picrews · Character Gallery';
+    const list = picrews();
+    const editable = signedIn();
+    const sort = state.picrewSort || 'used';
+    if (sort === 'az') list.sort((a, b) => a.name.localeCompare(b.name));
+    else if (sort === 'recent') list.sort((a, b) => (a.lastUsed < b.lastUsed ? 1 : a.lastUsed > b.lastUsed ? -1 : 0));
+    else list.sort((a, b) => b.pictures.length - a.pictures.length || a.name.localeCompare(b.name));
+    const used = state.data.pictures.filter((p) => picrewId(p.source.url)).length;
+
+    const rows = list.map((g) => {
+      const thumbs = g.pictures.slice(0, 3).map((p) => imgTag(p, '')).join('');
+      const shown = g.characters.slice(0, 3).map((n) =>
+        '<a class="chip-link small" href="#/c/' + esc(encodeURIComponent(slugify(n))) + '">' + esc(n) + '</a>').join('');
+      const more = g.characters.length > 3 ? '<span class="muted" style="font-size:13px">+' + (g.characters.length - 3) + ' more</span>' : '';
+      return '<li class="picrew-row">' +
+        '<a class="picrew-thumbs" href="#/picrews/' + esc(g.id) + '" aria-hidden="true" tabindex="-1">' + thumbs + '</a>' +
+        '<div class="picrew-main">' +
+          '<a class="picrew-name" href="#/picrews/' + esc(g.id) + '">' + esc(g.name) + '</a>' +
+          '<span class="picrew-meta">' + esc(plural(g.pictures.length, 'picture') + ' · last used ' + fmtDate(g.lastUsed)) + '</span>' +
+        '</div>' +
+        '<div class="picrew-chars">' + shown + more + '</div>' +
+        '<div class="picrew-actions">' +
+          '<a class="btn btn-small" href="' + esc(g.url) + '" target="_blank" rel="noopener noreferrer">Open Picrew' + ICON.ext + '</a>' +
+          (editable ? '<button type="button" class="btn btn-small" data-rename="' + esc(g.id) + '">Rename</button>' : '') +
+        '</div>' +
+      '</li>';
+    }).join('');
+
+    app.innerHTML =
+      '<div class="page-head">' +
+        '<div><h1 class="page-title">Picrews</h1>' +
+        '<p class="page-sub">' + esc(plural(list.length, 'Picrew') + ' · ' + plural(used, 'picture')) + '</p></div>' +
+        (list.length > 1
+          ? '<div class="segmented" role="group" aria-label="Order Picrews by">' +
+              [['used', 'Most used'], ['recent', 'Recently used'], ['az', 'A–Z']].map((o) =>
+                '<button type="button" data-psort="' + o[0] + '" aria-pressed="' + (sort === o[0]) + '">' + o[1] + '</button>').join('') +
+            '</div>'
+          : '') +
+      '</div>' +
+      (list.length
+        ? '<ul class="picrew-list">' + rows + '</ul>'
+        : '<div class="empty">No Picrews yet. Pictures whose link points to a Picrew show up here.</div>');
+
+    app.querySelectorAll('[data-psort]').forEach((b) => b.addEventListener('click', () => { state.picrewSort = b.dataset.psort; render(); }));
+    app.querySelectorAll('[data-rename]').forEach((b) => b.addEventListener('click', () => {
+      const g = picrews().find((x) => x.id === b.dataset.rename);
+      if (g) openRenamePicrew(g);
+    }));
+  }
+
+  function renderPicrew(id) {
+    const g = picrews().find((x) => x.id === id);
+    if (!g) {
+      document.title = 'Not found · Character Gallery';
+      app.innerHTML = '<a class="back-link" href="#/picrews">' + ICON.back + 'All Picrews</a>' +
+        '<div class="empty" style="margin-top:16px">No pictures use this Picrew any more.</div>';
+      return;
+    }
+    document.title = g.name + ' · Character Gallery';
+    const editable = signedIn();
+    app.innerHTML =
+      '<a class="back-link" href="#/picrews">' + ICON.back + 'All Picrews</a>' +
+      '<div class="char-head">' + imgTag(g.pictures[0], '') +
+        '<div class="char-head-text"><h1 class="page-title">' + esc(g.name) + '</h1>' +
+        '<p class="page-sub">' + esc(plural(g.pictures.length, 'picture') + ' of ' + plural(g.characters.length, 'character') + ' · last used ' + fmtDate(g.lastUsed)) + '</p>' +
+        '<div class="pic-actions" style="margin-top:12px">' +
+          '<a class="btn btn-small" href="' + esc(g.url) + '" target="_blank" rel="noopener noreferrer">Open Picrew' + ICON.ext + '</a>' +
+          (editable ? '<button type="button" class="btn btn-small" id="rename-picrew">Rename</button>' : '') +
+        '</div>' +
+        (g.mixedNames && editable ? '<p class="hint" style="margin:10px 0 0">Some pictures call this Picrew by a different name. Renaming sets the same name on all of them.</p>' : '') +
+        '</div>' +
+      '</div>' +
+      '<div class="pictures">' + g.pictures.map((p) => pictureCard(p, null, editable)).join('') + '</div>';
+    wirePictureCards({ picrewId: g.id });
+    const rn = document.getElementById('rename-picrew');
+    if (rn) rn.addEventListener('click', () => openRenamePicrew(g));
+  }
+
+  function openRenamePicrew(g) {
+    const m = openModal(
+      '<div class="dialog narrow" role="dialog" aria-modal="true" aria-labelledby="rn-title">' +
+        '<div class="dialog-head"><h2 id="rn-title">Rename Picrew</h2>' +
+          '<button type="button" class="icon-btn" aria-label="Close" data-close>' + ICON.close + '</button></div>' +
+        '<form class="dialog-body single" id="rn-form" novalidate>' +
+          '<div class="field"><label for="rn-name">Name</label>' +
+            '<input class="input" id="rn-name" autocomplete="off" value="' + esc(g.name) + '"></div>' +
+          '<p class="hint" style="margin:0">Changes the “Where it’s from” name on all ' + esc(plural(g.pictures.length, 'picture')) + ' made with this Picrew.</p>' +
+          '<p class="form-error" id="rn-error" role="alert" hidden></p>' +
+        '</form>' +
+        '<div class="dialog-foot">' +
+          '<button type="button" class="btn" data-close>Cancel</button>' +
+          '<button type="submit" form="rn-form" class="btn btn-primary" id="rn-save">Rename</button>' +
+        '</div>' +
+      '</div>');
+    const d = m.dialog;
+    const input = d.querySelector('#rn-name');
+    input.focus();
+    input.select();
+    d.querySelector('#rn-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const name = input.value.trim().replace(/\s+/g, ' ');
+      const err = d.querySelector('#rn-error');
+      if (!name) { err.textContent = 'Give it a name.'; err.hidden = false; return; }
+      if (state.busy) return;
+      const btn = d.querySelector('#rn-save');
+      btn.disabled = true;
+      btn.textContent = 'Renaming…';
+      state.busy = true;
+      try {
+        let n = 0;
+        await commitChange('Rename Picrew ' + g.id + ' to ' + name, (data) => {
+          data.pictures.forEach((p) => { if (picrewId(p.source.url) === g.id) { p.source.label = name; n++; } });
+          return data;
+        });
+        state.busy = false;
+        m.close();
+        toast('Renamed on ' + plural(n, 'picture') + '.');
+        render();
+      } catch (ex) {
+        state.busy = false;
+        btn.disabled = false;
+        btn.textContent = 'Rename';
+        err.textContent = explainError(ex);
+        err.hidden = false;
+      }
+    });
+  }
+
   /* ---------------------------------------------------------------- top bar */
 
   function renderTopbar() {
@@ -380,6 +551,8 @@
     const parts = (qAt === -1 ? h : h.slice(0, qAt)).split('/').filter(Boolean);
     if (parts[0] === 'add') return { view: 'add', params: new URLSearchParams(qAt === -1 ? '' : h.slice(qAt + 1)) };
     if (parts[0] === 'c' && parts[1]) return { view: 'character', slug: decodeURIComponent(parts[1]) };
+    if (parts[0] === 'picrews' && parts[1]) return { view: 'picrew', id: decodeURIComponent(parts[1]) };
+    if (parts[0] === 'picrews') return { view: 'picrews' };
     return { view: 'gallery' };
   }
 
@@ -395,7 +568,10 @@
     }
     const route = parseRoute();
     if (route.view === 'character') renderCharacter(route.slug);
+    else if (route.view === 'picrews') renderPicrews();
+    else if (route.view === 'picrew') renderPicrew(route.id);
     else renderGallery();
+    renderTabs(route.view);
     if (opts.focus) app.focus({ preventScroll: true });
     openPendingAdd();
   }
@@ -615,6 +791,12 @@
       '</div>' +
       '<div class="pictures">' + c.pictures.map((p) => pictureCard(p, c, editable)).join('') + '</div>';
 
+    wirePictureCards({ character: c });
+    app.querySelectorAll('[data-tier]').forEach((b) => b.addEventListener('click', () => setTier(c, b.dataset.tier)));
+  }
+
+  // Details toggles, feature boxes, edit and delete on a page of picture cards.
+  function wirePictureCards(ctx) {
     app.querySelectorAll('.details-toggle').forEach((btn) => btn.addEventListener('click', () => {
       const id = btn.dataset.id;
       const panel = document.getElementById('details-' + id);
@@ -623,13 +805,12 @@
       panel.hidden = !open;
       if (open) state.open.add(id); else state.open.delete(id);
     }));
-    app.querySelectorAll('.feature-input').forEach((box) => box.addEventListener('change', () => setFeatured(box, c)));
+    if (ctx.character) app.querySelectorAll('.feature-input').forEach((box) => box.addEventListener('change', () => setFeatured(box, ctx.character)));
     app.querySelectorAll('[data-edit]').forEach((b) => b.addEventListener('click', () => {
       const p = state.data.pictures.find((x) => x.id === b.dataset.edit);
       if (p) openPictureForm({ mode: 'edit', picture: p });
     }));
-    app.querySelectorAll('[data-delete]').forEach((b) => b.addEventListener('click', () => deletePicture(b.dataset.delete, c)));
-    app.querySelectorAll('[data-tier]').forEach((b) => b.addEventListener('click', () => setTier(c, b.dataset.tier)));
+    app.querySelectorAll('[data-delete]').forEach((b) => b.addEventListener('click', () => deletePicture(b.dataset.delete, ctx)));
   }
 
   function tierControl(c, editable) {
@@ -668,8 +849,8 @@
 
   function pictureCard(p, c, editable) {
     const open = state.open.has(p.id);
-    const isCover = p.id === c.cover.id;
-    const isFeatured = p.id === c.featuredId;
+    const isCover = !!c && p.id === c.cover.id;
+    const isFeatured = !!c && p.id === c.featuredId;
     const caption = p.tags.length ? p.tags.join(' · ') : 'No tags yet';
     const alt = p.characters.join(' and ') + (p.tags.length ? ' — ' + p.tags.join(', ') : '');
 
@@ -686,7 +867,7 @@
       source = p.source.label ? esc(p.source.label) : '<span class="muted">Not recorded</span>';
     }
 
-    const feature = editable
+    const feature = editable && c
       ? '<label class="feature-toggle"><input type="checkbox" class="feature-input" data-id="' + esc(p.id) + '"' + (isFeatured ? ' checked' : '') + '>' +
         '<span>Use as ' + esc(c.name) + '’s gallery picture</span></label>'
       : '';
@@ -743,10 +924,11 @@
     }
   }
 
-  async function deletePicture(id, c) {
+  async function deletePicture(id, ctx) {
     const p = state.data.pictures.find((x) => x.id === id);
     if (!p || state.busy) return;
-    const others = p.characters.filter((n) => !sameName(n, c.name));
+    const c = ctx.character;
+    const others = c ? p.characters.filter((n) => !sameName(n, c.name)) : p.characters.slice(1);
     const msg = 'Delete this picture of ' + p.characters.join(' and ') + '?' +
       (others.length ? '\n\nIt will be removed from every character it’s tagged with.' : '') +
       '\n\nThis can’t be undone from the site.';
@@ -760,9 +942,10 @@
         return d;
       }, { remove: [p.file] });
       toast('Picture deleted.');
-      const stillThere = characters().some((x) => x.slug === c.slug);
       state.busy = false;
-      if (!stillThere) location.hash = '#/'; else render();
+      if (c && !characters().some((x) => x.slug === c.slug)) location.hash = '#/';
+      else if (ctx.picrewId && !picrews().some((x) => x.id === ctx.picrewId)) location.hash = '#/picrews';
+      else render();
     } catch (e) {
       state.busy = false;
       toast(explainError(e), true);
