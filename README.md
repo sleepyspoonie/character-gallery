@@ -52,6 +52,12 @@ When the key expires, make a new one the same way and sign in again from the gea
   **Details** and tick **Use as … gallery picture**. That choice sticks even when you add newer
   pictures. Untick it to go back to "newest".
 - **Edit details** and **Delete** are in each picture's Details panel when you're signed in.
+- **Character tiers:** on a character's page, set them to **Major**, **Minor** or **Background**.
+  The tier belongs to the character, not to any one picture.
+- **Homepage order:** by default the homepage groups characters by tier (major → minor → background),
+  newest first within each group, and characters with no tier go at the bottom. The buttons on the homepage
+  switch to **Most recent**, **Least recent** or **A–Z** for that visit. To change the default for everyone,
+  open **Settings** (the gear icon) → **Homepage order**.
 - Changes show up straight away for you. The public copy of the site takes about a minute to catch up
   while GitHub republishes it.
 

@@ -13,6 +13,19 @@
   const API = 'https://api.github.com';
   const IMAGE_TYPES = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp' };
   const MAX_BYTES = 25 * 1024 * 1024;
+  const TIERS = [
+    { id: 'major', label: 'Major', heading: 'Major characters' },
+    { id: 'minor', label: 'Minor', heading: 'Minor characters' },
+    { id: 'background', label: 'Background', heading: 'Background characters' }
+  ];
+  const TIER_IDS = TIERS.map((t) => t.id);
+  const SORTS = [
+    { id: 'tier', label: 'Tier', long: 'By character tier — major, then minor, then background' },
+    { id: 'newest', label: 'Most recent', long: 'Most recently updated first' },
+    { id: 'oldest', label: 'Least recent', long: 'Least recently updated first' },
+    { id: 'az', label: 'A–Z', long: 'Alphabetical' }
+  ];
+  const SORT_IDS = SORTS.map((s) => s.id);
 
   const app = document.getElementById('app');
   const topbarActions = document.getElementById('topbar-actions');
@@ -24,7 +37,7 @@
     loaded: false,
     loadError: null,
     settings: loadSettings(),
-    sort: 'recent',
+    sort: null,               // homepage order picked this visit; null = use the saved default
     query: '',
     open: new Set(),          // picture ids whose details are expanded
     localImages: {},          // id -> object URL for pictures uploaded this session
@@ -224,9 +237,32 @@
         notes: p.notes || '',
         added: p.added || ''
       })),
-      featured: d.featured && typeof d.featured === 'object' ? Object.assign({}, d.featured) : {}
+      featured: d.featured && typeof d.featured === 'object' ? Object.assign({}, d.featured) : {},
+      characterInfo: normalizeCharacterInfo(d.characterInfo),
+      settings: {
+        defaultSort: d.settings && SORT_IDS.indexOf(d.settings.defaultSort) !== -1 ? d.settings.defaultSort : 'tier'
+      }
     };
   }
+  // Per-character settings (not per picture), keyed by character name. Right now: { tier }.
+  function normalizeCharacterInfo(info) {
+    const out = {};
+    if (!info || typeof info !== 'object') return out;
+    Object.keys(info).forEach((name) => {
+      const v = info[name];
+      if (v && typeof v === 'object' && TIER_IDS.indexOf(v.tier) !== -1) out[name] = { tier: v.tier };
+    });
+    return out;
+  }
+  function infoKey(name) {
+    const keys = Object.keys(state.data.characterInfo);
+    return keys.find((k) => k === name) || keys.find((k) => sameName(k, name)) || null;
+  }
+  function tierOf(name) {
+    const k = infoKey(name);
+    return k ? state.data.characterInfo[k].tier : '';
+  }
+  function currentSort() { return state.sort || state.data.settings.defaultSort || 'tier'; }
 
   async function loadData() {
     let data = null;
@@ -266,6 +302,7 @@
       c.cover = featured || c.pictures[0];
       c.slug = slugify(c.name);
       c.latest = c.pictures[0].added;
+      c.tier = tierOf(c.name);
       list.push(c);
     }
     return list;
@@ -366,9 +403,8 @@
             '<span class="visually-hidden">Search characters</span>' +
             '<input type="search" id="search" placeholder="Search characters" value="' + esc(state.query) + '">' +
           '</label>' +
-          '<div class="segmented" role="group" aria-label="Sort characters">' +
-            '<button type="button" data-sort="recent" aria-pressed="' + (state.sort === 'recent') + '">Recently updated</button>' +
-            '<button type="button" data-sort="az" aria-pressed="' + (state.sort === 'az') + '">A–Z</button>' +
+          '<div class="segmented" role="group" aria-label="Order characters by">' +
+            SORTS.map((s) => '<button type="button" data-sort="' + s.id + '" aria-pressed="' + (currentSort() === s.id) + '">' + esc(s.label) + '</button>').join('') +
           '</div>' +
         '</div>' +
       '</div>' +
@@ -392,11 +428,29 @@
     }
     const q = state.query.trim().toLowerCase();
     if (q) list = list.filter((c) => c.name.toLowerCase().includes(q));
-    if (state.sort === 'az') list.sort((a, b) => a.name.localeCompare(b.name));
-    else list.sort((a, b) => (a.latest === b.latest ? a.name.localeCompare(b.name) : (a.latest < b.latest ? 1 : -1)));
     if (!list.length) { grid.innerHTML = '<p class="muted">No characters match that search.</p>'; return; }
 
-    grid.innerHTML = '<div class="gallery">' + list.map((c) => {
+    const newest = (a, b) => (a.latest === b.latest ? a.name.localeCompare(b.name) : (a.latest < b.latest ? 1 : -1));
+    const sort = currentSort();
+    if (sort === 'az') list.sort((a, b) => a.name.localeCompare(b.name));
+    else if (sort === 'oldest') list.sort((a, b) => -newest(a, b));
+    else list.sort(newest);
+
+    if (sort === 'tier') {
+      // One section per tier, most recently updated first inside each; untiered characters go last.
+      const sections = TIERS.map((t) => ({ heading: t.heading, items: list.filter((c) => c.tier === t.id) }))
+        .concat([{ heading: 'No tier yet', items: list.filter((c) => !c.tier) }])
+        .filter((s) => s.items.length);
+      grid.innerHTML = sections.map((s) =>
+        '<section class="tier-section"><h2 class="tier-heading">' + esc(s.heading) +
+        '<span class="tier-count">' + s.items.length + '</span></h2>' + cardGrid(s.items) + '</section>').join('');
+    } else {
+      grid.innerHTML = cardGrid(list);
+    }
+  }
+
+  function cardGrid(list) {
+    return '<div class="gallery">' + list.map((c) => {
       const others = c.pictures.filter((p) => p.id !== c.cover.id);
       const layers =
         (others[1] ? '<span class="stack-layer back" aria-hidden="true">' + imgTag(others[1], '') + '</span>' : '') +
@@ -427,7 +481,8 @@
       '<a class="back-link" href="#/">' + ICON.back + 'All characters</a>' +
       '<div class="char-head">' + imgTag(c.cover, '') +
         '<div class="char-head-text"><h1 class="page-title">' + esc(c.name) + '</h1>' +
-        '<p class="page-sub">' + esc(plural(c.pictures.length, 'picture') + ' · ' + coverNote) + '</p></div>' +
+        '<p class="page-sub">' + esc(plural(c.pictures.length, 'picture') + ' · ' + coverNote) + '</p>' +
+        tierControl(c, editable) + '</div>' +
       '</div>' +
       '<div class="pictures">' + c.pictures.map((p) => pictureCard(p, c, editable)).join('') + '</div>';
 
@@ -445,6 +500,41 @@
       if (p) openPictureForm({ mode: 'edit', picture: p });
     }));
     app.querySelectorAll('[data-delete]').forEach((b) => b.addEventListener('click', () => deletePicture(b.dataset.delete, c)));
+    app.querySelectorAll('[data-tier]').forEach((b) => b.addEventListener('click', () => setTier(c, b.dataset.tier)));
+  }
+
+  function tierControl(c, editable) {
+    if (!editable) {
+      const t = TIERS.find((x) => x.id === c.tier);
+      return t ? '<p class="tier-pill">' + esc(t.label) + ' character</p>' : '';
+    }
+    const opts = TIERS.map((t) => ({ id: t.id, label: t.label })).concat([{ id: '', label: 'Not set' }]);
+    return '<div class="tier-picker"><span class="tier-picker-label" id="tier-label">Tier</span>' +
+      '<div class="segmented" role="group" aria-labelledby="tier-label">' +
+      opts.map((o) => '<button type="button" data-tier="' + o.id + '" aria-pressed="' + (c.tier === o.id) + '">' + esc(o.label) + '</button>').join('') +
+      '</div></div>';
+  }
+
+  async function setTier(c, tier) {
+    if (state.busy || c.tier === tier) return;
+    state.busy = true;
+    app.querySelectorAll('[data-tier]').forEach((b) => { b.disabled = true; });
+    try {
+      await commitChange('Set ' + c.name + ' tier to ' + (tier || 'none'), (d) => {
+        const keys = Object.keys(d.characterInfo);
+        const key = keys.find((k) => k === c.name) || keys.find((k) => sameName(k, c.name)) || c.name;
+        if (tier) d.characterInfo[key] = Object.assign({}, d.characterInfo[key], { tier: tier });
+        else delete d.characterInfo[key];
+        return d;
+      });
+      const t = TIERS.find((x) => x.id === tier);
+      toast(t ? c.name + ' is now a ' + t.label.toLowerCase() + ' character.' : c.name + ' has no tier now.');
+    } catch (e) {
+      toast(explainError(e), true);
+    } finally {
+      state.busy = false;
+      render();
+    }
   }
 
   function pictureCard(p, c, editable) {
@@ -584,11 +674,25 @@
 
   function openSettings() {
     const s = state.settings;
+    const wasSignedIn = signedIn();
+    const savedSort = state.data.settings.defaultSort;
+    const sortSection = wasSignedIn
+      ? '<fieldset class="settings-group divided">' +
+          '<legend class="settings-legend">Homepage order</legend>' +
+          '<p class="hint" style="margin:0 0 8px">How characters are ordered when anyone opens the gallery. The buttons on the homepage still switch it for that visit.</p>' +
+          SORTS.map((o) => '<label class="radio-row"><input type="radio" name="s-sort" value="' + o.id + '"' + (savedSort === o.id ? ' checked' : '') + '>' +
+            '<span>' + esc(o.long) + '</span></label>').join('') +
+          '<p class="hint" style="margin:8px 0 0">Set each character’s tier on their own page. Characters without one go at the bottom.</p>' +
+        '</fieldset>'
+      : '';
     const m = openModal(
       '<div class="dialog narrow" role="dialog" aria-modal="true" aria-labelledby="settings-title">' +
-        '<div class="dialog-head"><h2 id="settings-title">' + (signedIn() ? 'Settings' : 'Sign in to upload') + '</h2>' +
+        '<div class="dialog-head"><h2 id="settings-title">' + (wasSignedIn ? 'Settings' : 'Sign in to upload') + '</h2>' +
           '<button type="button" class="icon-btn" aria-label="Close" data-close>' + ICON.close + '</button></div>' +
         '<form class="dialog-body single" id="settings-form" novalidate>' +
+          sortSection +
+          '<fieldset class="settings-group">' +
+          (wasSignedIn ? '<legend class="settings-legend">GitHub connection</legend>' : '') +
           '<p class="hint" style="margin:0">Paste a GitHub key that can write to this site’s repository. It’s saved only in this browser, on this device.</p>' +
           '<div class="field"><label for="s-token">GitHub key</label>' +
             '<input class="input" id="s-token" type="password" autocomplete="off" spellcheck="false" value="' + esc(s.token) + '" placeholder="github_pat_…"></div>' +
@@ -598,17 +702,19 @@
           '</div>' +
           '<div class="field"><label for="s-branch">Branch <span class="optional">(leave blank for the default)</span></label>' +
             '<input class="input" id="s-branch" autocomplete="off" spellcheck="false" value="' + esc(s.branch) + '"></div>' +
+          '</fieldset>' +
           '<p class="form-error" id="s-error" hidden></p>' +
         '</form>' +
         '<div class="dialog-foot">' +
-          (signedIn() ? '<button type="button" class="btn btn-danger" id="s-signout" style="margin-right:auto">Sign out on this device</button>' : '') +
+          (wasSignedIn ? '<button type="button" class="btn btn-danger" id="s-signout" style="margin-right:auto">Sign out on this device</button>' : '') +
           '<button type="button" class="btn" data-close>Cancel</button>' +
-          '<button type="submit" form="settings-form" class="btn btn-primary" id="s-save">' + (signedIn() ? 'Save' : 'Sign in') + '</button>' +
+          '<button type="submit" form="settings-form" class="btn btn-primary" id="s-save">' + (wasSignedIn ? 'Save' : 'Sign in') + '</button>' +
         '</div>' +
       '</div>');
     const d = m.dialog;
     const err = d.querySelector('#s-error');
-    d.querySelector(s.token ? '#s-owner' : '#s-token').focus();
+    const firstFocus = d.querySelector('input[name="s-sort"]:checked') || d.querySelector(s.token ? '#s-owner' : '#s-token');
+    firstFocus.focus();
 
     const signout = d.querySelector('#s-signout');
     if (signout) signout.addEventListener('click', () => {
@@ -621,36 +727,57 @@
 
     d.querySelector('#settings-form').addEventListener('submit', async (e) => {
       e.preventDefault();
+      if (state.busy) return;
       const next = {
         token: d.querySelector('#s-token').value.trim(),
         owner: d.querySelector('#s-owner').value.trim(),
         repo: d.querySelector('#s-repo').value.trim(),
         branch: d.querySelector('#s-branch').value.trim()
       };
+      const picked = d.querySelector('input[name="s-sort"]:checked');
+      const newSort = picked ? picked.value : savedSort;
       err.hidden = true;
       if (!next.token || !next.owner || !next.repo) {
         err.textContent = 'Fill in the key, your username and the repository name.';
         err.hidden = false;
         return;
       }
+      const connectionChanged = !wasSignedIn || next.token !== s.token || next.owner !== s.owner ||
+        next.repo !== s.repo || next.branch !== s.branch;
       const btn = d.querySelector('#s-save');
       btn.disabled = true;
-      btn.textContent = 'Checking…';
+      state.busy = true;
       try {
-        const info = await gh(repoBase(next), { settings: next });
-        if (info.permissions && !info.permissions.push) throw Object.assign(new Error(''), { status: 403 });
-        if (!next.branch) next.branch = info.default_branch || 'main';
-        await gh(repoBase(next) + '/git/ref/heads/' + branchPath(next.branch), { settings: next });
-        state.settings = next;
-        saveSettings(next);
+        if (connectionChanged) {
+          btn.textContent = 'Checking…';
+          const info = await gh(repoBase(next), { settings: next });
+          if (info.permissions && !info.permissions.push) throw Object.assign(new Error(''), { status: 403 });
+          if (!next.branch) next.branch = info.default_branch || 'main';
+          await gh(repoBase(next) + '/git/ref/heads/' + branchPath(next.branch), { settings: next });
+          state.settings = next;
+          saveSettings(next);
+        }
+        if (wasSignedIn && newSort !== savedSort) {
+          btn.textContent = 'Saving…';
+          const label = SORTS.find((o) => o.id === newSort).label;
+          await commitChange('Set homepage order to ' + label, (data) => { data.settings.defaultSort = newSort; return data; });
+          state.sort = null;   // show the new default straight away
+        }
+        state.busy = false;
         m.close();
-        toast('Signed in. You can upload now.');
-        await refresh();
+        if (connectionChanged) {
+          toast(wasSignedIn ? 'Settings saved.' : 'Signed in. You can upload now.');
+          await refresh();
+        } else {
+          toast('Settings saved.');
+          render();
+        }
       } catch (ex) {
+        state.busy = false;
         err.textContent = explainError(ex);
         err.hidden = false;
         btn.disabled = false;
-        btn.textContent = signedIn() ? 'Save' : 'Sign in';
+        btn.textContent = wasSignedIn ? 'Save' : 'Sign in';
       }
     });
   }
