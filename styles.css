@@ -139,6 +139,24 @@ button { cursor: pointer; }
   padding: 48px 24px; border: 1px dashed var(--line-strong); border-radius: 18px; text-align: center; color: var(--muted);
 }
 
+.filter-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: -8px 0 32px; }
+.filter-label { font-size: 14px; color: var(--muted); margin-right: 4px; }
+.filter-chip {
+  display: inline-flex; align-items: center; gap: 6px; min-height: 40px; padding: 0 12px 0 10px;
+  border-radius: 999px; border: 1px solid var(--line-strong); background: none; color: var(--muted);
+  font-size: 14px; font-weight: 500;
+}
+.filter-chip:hover { background: var(--surface); color: var(--text); }
+.filter-check {
+  width: 18px; height: 18px; border-radius: 6px; border: 1.5px solid var(--line-strong);
+  display: inline-flex; align-items: center; justify-content: center; color: transparent;
+}
+.filter-chip[aria-pressed="true"] { background: var(--surface-2); color: var(--text); border-color: var(--line-strong); }
+.filter-chip[aria-pressed="true"] .filter-check { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.filter-count { color: var(--muted); font-size: 12px; font-weight: 600; }
+.hidden-note { margin: 40px 0 0; color: var(--muted); font-size: 14px; }
+.link-btn { padding: 0; border: 0; background: none; color: var(--accent); font-weight: 500; text-decoration: underline; min-height: 44px; }
+.link-btn:hover { color: #ffd27a; }
 .tier-section + .tier-section { margin-top: 64px; }
 .tier-heading {
   display: flex; align-items: center; gap: 10px; margin: 0 0 8px;
@@ -301,6 +319,8 @@ textarea.input { padding: 10px 12px; resize: vertical; min-height: 84px; }
 }
 .settings-group .radio-row:first-of-type { margin-top: 0; }
 .radio-row:hover { background: var(--surface-2); }
+.check-row { align-items: flex-start; margin-top: 4px !important; }
+.check-row input { margin-top: 2px !important; }
 .radio-row input { width: 18px; height: 18px; margin: 0; flex: none; accent-color: var(--accent); }
 
 /* ---------- toast ---------- */

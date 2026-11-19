@@ -26,6 +26,7 @@
     { id: 'az', label: 'A–Z', long: 'Alphabetical' }
   ];
   const SORT_IDS = SORTS.map((s) => s.id);
+  const FILTERS = TIERS.map((t) => ({ id: t.id, label: t.label })).concat([{ id: 'none', label: 'No tier' }]);
 
   const app = document.getElementById('app');
   const topbarActions = document.getElementById('topbar-actions');
@@ -38,6 +39,7 @@
     loadError: null,
     settings: loadSettings(),
     sort: null,               // homepage order picked this visit; null = use the saved default
+    tierFilter: null,         // Set of tiers shown this visit; null = use the saved default
     query: '',
     open: new Set(),          // picture ids whose details are expanded
     localImages: {},          // id -> object URL for pictures uploaded this session
@@ -87,6 +89,7 @@
     x: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>',
     ext: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17L17 7M9 7h8v8"/></svg>',
     image: '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-5-5L5 21"/></svg>',
+    check: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
     key: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="15" r="4"/><path d="M10.8 12.2L20 3M16 7l3 3M14 9l2 2"/></svg>',
     gear: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>'
   };
@@ -240,7 +243,8 @@
       featured: d.featured && typeof d.featured === 'object' ? Object.assign({}, d.featured) : {},
       characterInfo: normalizeCharacterInfo(d.characterInfo),
       settings: {
-        defaultSort: d.settings && SORT_IDS.indexOf(d.settings.defaultSort) !== -1 ? d.settings.defaultSort : 'tier'
+        defaultSort: d.settings && SORT_IDS.indexOf(d.settings.defaultSort) !== -1 ? d.settings.defaultSort : 'tier',
+        hideBackground: !!(d.settings && d.settings.hideBackground)
       }
     };
   }
@@ -263,6 +267,13 @@
     return k ? state.data.characterInfo[k].tier : '';
   }
   function currentSort() { return state.sort || state.data.settings.defaultSort || 'tier'; }
+  function shownTiers() {
+    if (state.tierFilter) return state.tierFilter;
+    const all = new Set(FILTERS.map((f) => f.id));
+    if (state.data.settings.hideBackground) all.delete('background');
+    return all;
+  }
+  function tierKey(c) { return c.tier || 'none'; }
 
   async function loadData() {
     let data = null;
@@ -408,8 +419,24 @@
           '</div>' +
         '</div>' +
       '</div>' +
+      '<div class="filter-row" role="group" aria-labelledby="filter-label">' +
+        '<span class="filter-label" id="filter-label">Show</span>' +
+        FILTERS.map((f) => {
+          const n = all.filter((c) => tierKey(c) === f.id).length;
+          return '<button type="button" class="filter-chip" data-filter="' + f.id + '" aria-pressed="' + shownTiers().has(f.id) + '">' +
+            '<span class="filter-check" aria-hidden="true">' + ICON.check + '</span>' + esc(f.label) +
+            '<span class="filter-count">' + n + '</span></button>';
+        }).join('') +
+      '</div>' +
       '<div id="grid"></div>';
 
+    app.querySelectorAll('[data-filter]').forEach((b) => b.addEventListener('click', () => {
+      const next = new Set(shownTiers());
+      if (next.has(b.dataset.filter)) next.delete(b.dataset.filter); else next.add(b.dataset.filter);
+      state.tierFilter = next;
+      syncFilterButtons();
+      renderGrid();
+    }));
     document.getElementById('search').addEventListener('input', (e) => { state.query = e.target.value; renderGrid(); });
     app.querySelectorAll('[data-sort]').forEach((b) => b.addEventListener('click', () => {
       state.sort = b.dataset.sort;
@@ -417,6 +444,11 @@
       renderGrid();
     }));
     renderGrid();
+  }
+
+  function syncFilterButtons() {
+    const shown = shownTiers();
+    app.querySelectorAll('[data-filter]').forEach((x) => x.setAttribute('aria-pressed', String(shown.has(x.dataset.filter))));
   }
 
   function renderGrid() {
@@ -429,6 +461,20 @@
     const q = state.query.trim().toLowerCase();
     if (q) list = list.filter((c) => c.name.toLowerCase().includes(q));
     if (!list.length) { grid.innerHTML = '<p class="muted">No characters match that search.</p>'; return; }
+    const shown = shownTiers();
+    const hidden = list.filter((c) => !shown.has(tierKey(c)));
+    list = list.filter((c) => shown.has(tierKey(c)));
+    const hiddenNote = hidden.length
+      ? '<p class="hidden-note">' + esc((hidden.length === 1
+          ? '1 ' + (q ? 'matching ' : '') + 'character is'
+          : hidden.length + ' ' + (q ? 'matching ' : '') + 'characters are') + ' hidden by the Show filter.') +
+        ' <button type="button" class="link-btn" id="show-all">Show everyone</button></p>'
+      : '';
+    if (!list.length) {
+      grid.innerHTML = hiddenNote || '<p class="muted">Nothing to show.</p>';
+      wireShowAll();
+      return;
+    }
 
     const newest = (a, b) => (a.latest === b.latest ? a.name.localeCompare(b.name) : (a.latest < b.latest ? 1 : -1));
     const sort = currentSort();
@@ -443,10 +489,20 @@
         .filter((s) => s.items.length);
       grid.innerHTML = sections.map((s) =>
         '<section class="tier-section"><h2 class="tier-heading">' + esc(s.heading) +
-        '<span class="tier-count">' + s.items.length + '</span></h2>' + cardGrid(s.items) + '</section>').join('');
+        '<span class="tier-count">' + s.items.length + '</span></h2>' + cardGrid(s.items) + '</section>').join('') + hiddenNote;
     } else {
-      grid.innerHTML = cardGrid(list);
+      grid.innerHTML = cardGrid(list) + hiddenNote;
     }
+    wireShowAll();
+  }
+
+  function wireShowAll() {
+    const btn = document.getElementById('show-all');
+    if (btn) btn.addEventListener('click', () => {
+      state.tierFilter = new Set(FILTERS.map((f) => f.id));
+      syncFilterButtons();
+      renderGrid();
+    });
   }
 
   function cardGrid(list) {
@@ -678,11 +734,13 @@
     const savedSort = state.data.settings.defaultSort;
     const sortSection = wasSignedIn
       ? '<fieldset class="settings-group divided">' +
-          '<legend class="settings-legend">Homepage order</legend>' +
+          '<legend class="settings-legend">Homepage</legend>' +
           '<p class="hint" style="margin:0 0 8px">How characters are ordered when anyone opens the gallery. The buttons on the homepage still switch it for that visit.</p>' +
           SORTS.map((o) => '<label class="radio-row"><input type="radio" name="s-sort" value="' + o.id + '"' + (savedSort === o.id ? ' checked' : '') + '>' +
             '<span>' + esc(o.long) + '</span></label>').join('') +
           '<p class="hint" style="margin:8px 0 0">Set each character’s tier on their own page. Characters without one go at the bottom.</p>' +
+          '<label class="radio-row check-row"><input type="checkbox" id="s-hide-bg"' + (state.data.settings.hideBackground ? ' checked' : '') + '>' +
+            '<span>Hide background characters by default<span class="hint" style="display:block">The Show filter on the homepage can still bring them back for a visit.</span></span></label>' +
         '</fieldset>'
       : '';
     const m = openModal(
@@ -736,6 +794,9 @@
       };
       const picked = d.querySelector('input[name="s-sort"]:checked');
       const newSort = picked ? picked.value : savedSort;
+      const hideBox = d.querySelector('#s-hide-bg');
+      const savedHide = state.data.settings.hideBackground;
+      const newHide = hideBox ? hideBox.checked : savedHide;
       err.hidden = true;
       if (!next.token || !next.owner || !next.repo) {
         err.textContent = 'Fill in the key, your username and the repository name.';
@@ -757,11 +818,18 @@
           state.settings = next;
           saveSettings(next);
         }
-        if (wasSignedIn && newSort !== savedSort) {
+        if (wasSignedIn && (newSort !== savedSort || newHide !== savedHide)) {
           btn.textContent = 'Saving…';
-          const label = SORTS.find((o) => o.id === newSort).label;
-          await commitChange('Set homepage order to ' + label, (data) => { data.settings.defaultSort = newSort; return data; });
-          state.sort = null;   // show the new default straight away
+          const parts = [];
+          if (newSort !== savedSort) parts.push('order: ' + SORTS.find((o) => o.id === newSort).label);
+          if (newHide !== savedHide) parts.push(newHide ? 'hide background characters' : 'show background characters');
+          await commitChange('Homepage settings — ' + parts.join(', '), (data) => {
+            data.settings.defaultSort = newSort;
+            data.settings.hideBackground = newHide;
+            return data;
+          });
+          state.sort = null;        // show the new defaults straight away
+          state.tierFilter = null;
         }
         state.busy = false;
         m.close();

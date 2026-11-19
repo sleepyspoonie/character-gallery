@@ -57,7 +57,10 @@ When the key expires, make a new one the same way and sign in again from the gea
 - **Homepage order:** by default the homepage groups characters by tier (major → minor → background),
   newest first within each group, and characters with no tier go at the bottom. The buttons on the homepage
   switch to **Most recent**, **Least recent** or **A–Z** for that visit. To change the default for everyone,
-  open **Settings** (the gear icon) → **Homepage order**.
+  open **Settings** (the gear icon) → **Homepage**.
+- **Show filter:** the row of tick-boxes on the homepage (Major, Minor, Background, No tier) hides or shows
+  each tier for that visit. To keep background characters out of sight unless someone asks for them, tick
+  **Hide background characters by default** in **Settings** → **Homepage**.
 - Changes show up straight away for you. The public copy of the site takes about a minute to catch up
   while GitHub republishes it.
 
