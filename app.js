@@ -244,6 +244,9 @@
       })),
       featured: d.featured && typeof d.featured === 'object' ? Object.assign({}, d.featured) : {},
       characterInfo: normalizeCharacterInfo(d.characterInfo),
+      savedPicrews: (Array.isArray(d.savedPicrews) ? d.savedPicrews : [])
+        .filter((x) => x && /^\d+$/.test(String(x.id)))
+        .map((x) => ({ id: String(x.id), name: String(x.name || '').trim(), added: x.added || '' })),
       settings: {
         defaultSort: d.settings && SORT_IDS.indexOf(d.settings.defaultSort) !== -1 ? d.settings.defaultSort : 'tier',
         hideBackground: !!(d.settings && d.settings.hideBackground)
@@ -425,6 +428,7 @@
     }).join('');
 
     app.innerHTML =
+      savedSection(editable, list) +
       '<div class="page-head">' +
         '<div><h1 class="page-title">Picrews</h1>' +
         '<p class="page-sub">' + esc(plural(list.length, 'Picrew') + ' · ' + plural(used, 'picture')) + '</p></div>' +
@@ -439,11 +443,169 @@
         ? '<ul class="picrew-list">' + rows + '</ul>'
         : '<div class="empty">No Picrews yet. Pictures whose link points to a Picrew show up here.</div>');
 
+    wireSaved();
     app.querySelectorAll('[data-psort]').forEach((b) => b.addEventListener('click', () => { state.picrewSort = b.dataset.psort; render(); }));
     app.querySelectorAll('[data-rename]').forEach((b) => b.addEventListener('click', () => {
       const g = picrews().find((x) => x.id === b.dataset.rename);
       if (g) openRenamePicrew(g);
     }));
+  }
+
+  /* ------------------------------------------------- Picrews saved for later */
+
+  function picrewUrl(id) { return 'https://picrew.me/en/image_maker/' + id; }
+
+  // Pull every Picrew link out of pasted text. Words on the same line as a single link become its name.
+  function parsePicrewLinks(text) {
+    const found = [];
+    let skipped = 0;
+    text.split(/\r?\n/).forEach((line) => {
+      const re = /(?:https?:\/\/)?(?:www\.)?picrew\.me\/(?:[a-z-]+\/)?image_maker\/(\d+)\S*/gi;
+      const matches = Array.from(line.matchAll(re));
+      if (!matches.length) { if (line.trim()) skipped++; return; }
+      const rest = line.replace(re, ' ').replace(/\s+/g, ' ').replace(/^[\s\-–—:|,•*·]+|[\s\-–—:|,•*·]+$/g, '').slice(0, 120);
+      matches.forEach((m) => found.push({ id: m[1], name: matches.length === 1 ? rest : '' }));
+    });
+    return { found: found, skipped: skipped };
+  }
+
+  function savedSection(editable, used) {
+    if (!editable) return '';
+    const usedCount = {};
+    used.forEach((g) => { usedCount[g.id] = g; });
+    const saved = state.data.savedPicrews.slice().sort((a, b) =>
+      (!!usedCount[a.id] - !!usedCount[b.id]) || (a.added < b.added ? 1 : a.added > b.added ? -1 : 0));
+    const usedSaved = saved.filter((x) => usedCount[x.id]).length;
+    const rows = saved.map((x) => {
+      const g = usedCount[x.id];
+      const name = x.name || (g && g.name) || 'Picrew ' + x.id;
+      return '<li class="saved-row' + (g ? ' is-used' : '') + '">' +
+        '<div class="saved-main">' +
+          '<a class="saved-name" href="' + esc(picrewUrl(x.id)) + '" target="_blank" rel="noopener noreferrer">' + esc(name) + ICON.ext + '</a>' +
+          '<span class="picrew-meta">' + (x.name ? 'Picrew ' + esc(x.id) + ' · ' : '') + 'saved ' + esc(fmtDate(x.added)) + '</span>' +
+        '</div>' +
+        (g ? '<a class="used-badge" href="#/picrews/' + esc(x.id) + '">' + ICON.check + 'Used · ' + esc(plural(g.pictures.length, 'picture')) + '</a>' : '') +
+        '<div class="saved-actions">' +
+          '<button type="button" class="btn btn-small" data-saved-name="' + esc(x.id) + '">' + (x.name ? 'Rename' : 'Name it') + '</button>' +
+          '<button type="button" class="btn btn-small btn-danger" data-saved-remove="' + esc(x.id) + '" aria-label="Remove ' + esc(name) + '">Remove</button>' +
+        '</div>' +
+      '</li>';
+    }).join('');
+    return '<section class="saved" aria-labelledby="saved-title">' +
+      '<h2 class="saved-title" id="saved-title">Saved for later</h2>' +
+      '<form class="saved-form" id="saved-form" novalidate>' +
+        '<label for="saved-input">Paste Picrew links</label>' +
+        '<textarea class="input" id="saved-input" rows="3" spellcheck="false" placeholder="https://picrew.me/en/image_maker/123456&#10;https://picrew.me/en/image_maker/654321 witchy outfits"></textarea>' +
+        '<div class="saved-form-foot">' +
+          '<span class="hint">As many as you like, one per line. Anything after a link on the same line becomes its name.</span>' +
+          '<button type="submit" class="btn btn-primary" id="saved-save">Save links</button>' +
+        '</div>' +
+      '</form>' +
+      (saved.length
+        ? '<details class="saved-list" id="saved-list"' + (state.savedOpen ? ' open' : '') + '>' +
+            '<summary>' + ICON.chevron + 'Saved Picrews <span class="tier-count">' + saved.length + '</span>' +
+              (usedSaved ? '<span class="muted" style="font-size:13px;font-weight:500">' + usedSaved + ' used</span>' : '') + '</summary>' +
+            '<ul class="saved-rows">' + rows + '</ul>' +
+            (usedSaved ? '<p style="margin:12px 0 0"><button type="button" class="btn btn-small" id="saved-clear-used">Remove the ' + usedSaved + ' you’ve used</button></p>' : '') +
+          '</details>'
+        : '<p class="muted" style="margin:12px 0 0">Nothing saved yet.</p>') +
+    '</section>';
+  }
+
+  function wireSaved() {
+    const form = document.getElementById('saved-form');
+    if (!form) return;
+    const list = document.getElementById('saved-list');
+    if (list) list.addEventListener('toggle', () => { state.savedOpen = list.open; });
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const input = document.getElementById('saved-input');
+      const parsed = parsePicrewLinks(input.value);
+      if (!parsed.found.length) {
+        toast(input.value.trim() ? 'No Picrew links found in that. They look like picrew.me/…/image_maker/123456.' : 'Paste some Picrew links first.', true);
+        input.focus();
+        return;
+      }
+      if (state.busy) return;
+      const btn = document.getElementById('saved-save');
+      btn.disabled = true; btn.textContent = 'Saving…';
+      state.busy = true;
+      let added = 0, dupes = 0, named = 0;
+      try {
+        await commitChange('Save ' + plural(parsed.found.length, 'Picrew') + ' for later', (d) => {
+          added = 0; dupes = 0; named = 0;
+          const now = new Date().toISOString();
+          parsed.found.forEach((f) => {
+            const have = d.savedPicrews.find((x) => x.id === f.id);
+            if (have) { dupes++; if (f.name && !have.name) { have.name = f.name; named++; } return; }
+            d.savedPicrews.push({ id: f.id, name: f.name, added: now });
+            added++;
+          });
+          return d;
+        });
+        state.busy = false;
+        const bits = [];
+        if (added) bits.push('Saved ' + plural(added, 'Picrew') + '.');
+        if (dupes) bits.push((added ? '' : 'Already saved') + (added ? dupes + (dupes === 1 ? ' was' : ' were') + ' already saved' : '') +
+          (named ? (added ? '; ' : ' — ') + plural(named, 'name') + ' added.' : '.'));
+        if (parsed.skipped) bits.push(plural(parsed.skipped, 'line') + ' had no Picrew link.');
+        toast(bits.join(' '));
+        render();
+      } catch (ex) {
+        state.busy = false;
+        btn.disabled = false; btn.textContent = 'Save links';
+        toast(explainError(ex), true);
+      }
+    });
+    app.querySelectorAll('[data-saved-remove]').forEach((b) => b.addEventListener('click', () =>
+      changeSaved('Remove saved Picrew ' + b.dataset.savedRemove, (d) => {
+        d.savedPicrews = d.savedPicrews.filter((x) => x.id !== b.dataset.savedRemove); return d;
+      }, 'Removed.')));
+    const clearUsed = document.getElementById('saved-clear-used');
+    if (clearUsed) clearUsed.addEventListener('click', () => {
+      const usedIds = new Set(picrews().map((g) => g.id));
+      changeSaved('Remove used Picrews from saved list', (d) => {
+        d.savedPicrews = d.savedPicrews.filter((x) => !usedIds.has(x.id)); return d;
+      }, 'Removed the ones you’ve used.');
+    });
+    app.querySelectorAll('[data-saved-name]').forEach((b) => b.addEventListener('click', () => openNameSaved(b.dataset.savedName)));
+  }
+
+  async function changeSaved(message, mutate, done) {
+    if (state.busy) return;
+    state.busy = true;
+    try { await commitChange(message, mutate); toast(done); }
+    catch (ex) { toast(explainError(ex), true); }
+    finally { state.busy = false; render(); }
+  }
+
+  function openNameSaved(id) {
+    const x = state.data.savedPicrews.find((y) => y.id === id);
+    if (!x) return;
+    const m = openModal(
+      '<div class="dialog narrow" role="dialog" aria-modal="true" aria-labelledby="sn-title">' +
+        '<div class="dialog-head"><h2 id="sn-title">Name saved Picrew</h2>' +
+          '<button type="button" class="icon-btn" aria-label="Close" data-close>' + ICON.close + '</button></div>' +
+        '<form class="dialog-body single" id="sn-form" novalidate>' +
+          '<div class="field"><label for="sn-name">Name for Picrew ' + esc(id) + '</label>' +
+            '<input class="input" id="sn-name" autocomplete="off" value="' + esc(x.name) + '" placeholder="e.g. witchy outfits"></div>' +
+          '<p class="hint" style="margin:0"><a href="' + esc(picrewUrl(id)) + '" target="_blank" rel="noopener noreferrer">Open it on Picrew</a> to check what it is.</p>' +
+        '</form>' +
+        '<div class="dialog-foot"><button type="button" class="btn" data-close>Cancel</button>' +
+          '<button type="submit" form="sn-form" class="btn btn-primary">Save</button></div>' +
+      '</div>');
+    const input = m.dialog.querySelector('#sn-name');
+    input.focus(); input.select();
+    m.dialog.querySelector('#sn-form').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const name = input.value.trim().replace(/\s+/g, ' ').slice(0, 120);
+      m.close();
+      changeSaved('Name saved Picrew ' + id, (d) => {
+        const y = d.savedPicrews.find((z) => z.id === id);
+        if (y) y.name = name;
+        return d;
+      }, name ? 'Named.' : 'Name cleared.');
+    });
   }
 
   function renderPicrew(id) {

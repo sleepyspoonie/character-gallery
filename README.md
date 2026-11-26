@@ -74,6 +74,13 @@ its link, so the same Picrew counts once even if pictures were labelled differen
 - **Open Picrew** goes to the Picrew itself.
 - **Rename** (when signed in) changes its name on every picture made with it, all in one go.
 
+**Saved for later** (top of the Picrews tab, only shown when signed in): paste any number of Picrew links,
+one per line, and click **Save links**. Text after a link on the same line is saved as its name, so
+`https://picrew.me/en/image_maker/123456 witchy outfits` saves it as "witchy outfits". Messy pastes are
+fine: links already saved and lines without a Picrew link are skipped. The list stays collapsed until you
+open it. Once you've made a picture with a saved Picrew it's marked **Used**, and **Remove the ones you've
+used** clears those out.
+
 ## Picrew button (Firefox or any desktop browser)
 
 1. Sign in on the gallery, open **Settings** (gear icon) and find **Picrew button**.
