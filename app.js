@@ -428,7 +428,6 @@
     }).join('');
 
     app.innerHTML =
-      savedSection(editable, list) +
       '<div class="page-head">' +
         '<div><h1 class="page-title">Picrews</h1>' +
         '<p class="page-sub">' + esc(plural(list.length, 'Picrew') + ' · ' + plural(used, 'picture')) + '</p></div>' +
@@ -441,7 +440,8 @@
       '</div>' +
       (list.length
         ? '<ul class="picrew-list">' + rows + '</ul>'
-        : '<div class="empty">No Picrews yet. Pictures whose link points to a Picrew show up here.</div>');
+        : '<div class="empty">No Picrews yet. Pictures whose link points to a Picrew show up here.</div>') +
+      savedSection(editable, list);
 
     wireSaved();
     app.querySelectorAll('[data-psort]').forEach((b) => b.addEventListener('click', () => { state.picrewSort = b.dataset.psort; render(); }));
@@ -495,10 +495,10 @@
       '<h2 class="saved-title" id="saved-title">Saved for later</h2>' +
       '<form class="saved-form" id="saved-form" novalidate>' +
         '<label for="saved-input">Paste Picrew links</label>' +
-        '<textarea class="input" id="saved-input" rows="3" spellcheck="false" placeholder="https://picrew.me/en/image_maker/123456&#10;https://picrew.me/en/image_maker/654321 witchy outfits"></textarea>' +
+        '<textarea class="input" id="saved-input" rows="2" spellcheck="false" placeholder="https://picrew.me/en/image_maker/123456&#10;https://picrew.me/en/image_maker/654321 witchy outfits"></textarea>' +
         '<div class="saved-form-foot">' +
           '<span class="hint">As many as you like, one per line. Anything after a link on the same line becomes its name.</span>' +
-          '<button type="submit" class="btn btn-primary" id="saved-save">Save links</button>' +
+          '<button type="submit" class="btn btn-small" id="saved-save">Save links</button>' +
         '</div>' +
       '</form>' +
       (saved.length
